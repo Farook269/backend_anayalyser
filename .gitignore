@@ -1,0 +1,134 @@
+
+# Python specific
+*.pyc
+__pycache__/
+
+# Python virtual environments
+venv/
+env/
+.venv/
+
+# IDE or editor specific
+.vscode/
+.idea/
+.vs/
+.sublime/
+
+# Compiled Python files
+*.pyc
+
+# Log files
+*.log
+
+# Configuration files containing sensitive information
+.env
+
+Include/
+Lib/
+Scripts/
+pkl_file/
+audio_file_folder/
+speech_dir/
+etc/
+share/
+input_file/
+uploads/
+.Include/
+.Lib/
+.PDF_UPLOAD_DATA/
+.Scripts/
+.pkl_file/
+.etc/
+.share/
+.input_file/
+cmd.txt
+nssm.exe
+pyvenv.cfg
+log.txt
+
+# -------------------- Additions for CI/CD and Python packaging --------------------
+
+# Installer logs
+pip-log.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# Pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Django
+local_settings.py
+db.sqlite3
+
+# Flask
+instance/
+.webassets-cache
+
+# Scrapy
+.scrapy
+
+# Sphinx
+docs/_build/
+
+# PyBuilder
+target/
+
+# IPython
+profile_default/
+ipython_config.py
+
+# PEP 582
+__pypackages__/
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.tar.gz
+*.whl
+
+# PyInstaller
+*.manifest
+*.spec
+
+# GitLab CI
+*.bak
+
+# SonarQube
+.sonar/
+.sonarlint/
+
+# Nexus / Security scan cache
+.trivy/
+.safety/
+
+# Docker
+*.pid
+
+# Generated artifacts
+build.env
+
+# Secrets (if you keep local test secrets)
+secrets.json
