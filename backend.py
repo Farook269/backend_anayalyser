@@ -1,5 +1,6 @@
 import os
 import base64
+
 import requests
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
@@ -23,12 +24,33 @@ if not SERPER_API_KEY:
     raise ValueError("❌ SERPER_API_KEY not found in .env file.")
 
 # 2️⃣ Initialize Embedding model
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+# 2️⃣ Initialize Embedding model (lazy — avoid loading torch/model at import time)
+_embeddings = None
+
+def get_embeddings():
+    global _embeddings
+    if _embeddings is None:
+        _embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    return _embeddings
+
+
+
+ # Step 2: Initialize Groq LLM
+ 
+
+
 
 # 3️⃣ Model names — both free-tier on Groq (rate-limited, no card required)
 TEXT_MODEL = "openai/gpt-oss-20b"
 VISION_MODEL = "qwen/qwen3.6-27b"
 
+ # Step 2: Initialize Groq LLM
+llm = ChatGroq(
+        model=TEXT_MODEL,
+        temperature=0.3,
+        groq_api_key=GROQ_API_KEY
+)
 
 # -----------------------------
 # 🖼️ Vision-based page analysis (for scanned pages / diagrams / flowcharts)
@@ -158,7 +180,7 @@ def create_pdf_retriever(file_paths):
             "The file may be corrupted or contain no readable content."
         )
 
-    vectorstore = FAISS.from_documents(all_docs, embeddings)
+    vectorstore = FAISS.from_documents(all_docs, get_embeddings())
     retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
     return retriever
 
@@ -203,12 +225,7 @@ def generate_answer(user_question, retriever, include_sources=True):
             "page": meta.get("page", 0),
         })
 
-    # Step 2: Initialize Groq LLM
-    llm = ChatGroq(
-        model=TEXT_MODEL,
-        temperature=0.3,
-        groq_api_key=GROQ_API_KEY
-    )
+   
 
     # Step 3: If context found, use it
     if context.strip():
