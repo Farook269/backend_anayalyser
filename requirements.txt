@@ -16,3 +16,7 @@ python-dotenv
 fastapi 
 uvicorn 
 python-multipart
+requests
+
+PyMuPDF==1.24.14
+pypdf==5.1.0
