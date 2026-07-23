@@ -4,6 +4,8 @@ import shutil
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import threading
+from backend import get_embeddings
 from backend import create_pdf_retriever, generate_answer
 
 #  Configuration
@@ -11,6 +13,15 @@ UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app = FastAPI()
+
+
+
+@app.on_event("startup")
+def warm_up_embeddings():
+    def _load():
+        get_embeddings()
+        print("✅ Embedding model warmed up")
+    threading.Thread(target=_load, daemon=True).start()
 
 # Enable CORS for Postman and frontend use
 app.add_middleware(

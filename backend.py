@@ -124,7 +124,7 @@ def extract_documents_with_vision(path, min_text_len=40):
     page_texts = {i: (p.page_content or "") for i, p in enumerate(pages)}
     needs_vision = [
         i for i, text in page_texts.items()
-        if len(text.strip()) < min_text_len and _page_has_image(path, i)
+        if len(text.strip()) < min_text_len
     ]
 
     vision_results = {}
