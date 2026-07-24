@@ -26,7 +26,11 @@ def warm_up_embeddings():
 # Enable CORS for Postman and frontend use
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://rag-analyser-frontend-zlht.onrender.com",
+        "http://localhost:3000",  # Optional: for local development
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
