@@ -18,11 +18,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GROQ_API_KEY:
     raise ValueError("❌ GROQ_API_KEY not found in .env file.")
 if not SERPER_API_KEY:
     raise ValueError("❌ SERPER_API_KEY not found in .env file.")
+
+try:
+    from langchain_google_genai import GoogleGenerativeAIEmbeddings
+except ImportError:
+    GoogleGenerativeAIEmbeddings = None
 
 # 2️⃣ Lightweight FastEmbed Embeddings (<50MB RAM, ONNX runtime, no PyTorch)
 class LightweightFastEmbed(Embeddings):
@@ -45,7 +51,15 @@ _embeddings = None
 def get_embeddings():
     global _embeddings
     if _embeddings is None:
-        _embeddings = LightweightFastEmbed(model_name="BAAI/bge-small-en-v1.5")
+        if GEMINI_API_KEY and GoogleGenerativeAIEmbeddings is not None:
+            print("[INFO] Using Google Gemini Cloud Embeddings (instant, 0% container CPU)")
+            _embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/gemini-embedding-001",
+                google_api_key=GEMINI_API_KEY
+            )
+        else:
+            print("[INFO] Using local LightweightFastEmbed")
+            _embeddings = LightweightFastEmbed(model_name="BAAI/bge-small-en-v1.5")
     return _embeddings
 
 

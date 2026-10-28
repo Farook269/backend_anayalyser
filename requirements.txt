@@ -6,9 +6,10 @@ python-dotenv
 PyMuPDF==1.24.14
 langchain==0.2.16
 langchain-community==0.2.16
-langchain-core==0.2.38
+langchain-core>=0.2.38
 langchain-text-splitters==0.2.4
-langchain_groq==0.1.9
+langchain_groq>=1.1.0
 langsmith>=0.1.0,<0.2.0
+langchain-google-genai
 faiss-cpu
 fastembed
