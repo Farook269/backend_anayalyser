@@ -21,10 +21,11 @@ app = FastAPI()
 def warm_up_embeddings():
     def _load():
         import time
-        time.sleep(3)  # Allow container to pass initial cloud health checks
+        time.sleep(2)  # Allow container to pass initial cloud health checks
         try:
-            get_embeddings()
-            print("[INFO] Embedding model warmed up")
+            emb = get_embeddings()
+            emb.embed_query("warmup document vectorizer")
+            print("[INFO] FastEmbed model downloaded, ONNX session warmed up")
         except Exception as e:
             print(f"[WARN] Embedding warmup error: {e}")
     threading.Thread(target=_load, daemon=True).start()

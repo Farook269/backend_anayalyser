@@ -189,7 +189,7 @@ def extract_documents_with_vision(path, min_text_len=30):
 # -----------------------------
 def create_pdf_retriever(file_paths):
     all_docs = []
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=150)
     chunk_id = 0
 
     for path in file_paths:
