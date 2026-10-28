@@ -27,12 +27,14 @@ def warm_up_embeddings():
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://rag-analyser-frontend.vercel.app",
         "https://rag-analyser-frontend-zlht.onrender.com",
         "http://localhost:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
     ],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
