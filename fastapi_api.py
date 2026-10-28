@@ -19,8 +19,13 @@ app = FastAPI()
 @app.on_event("startup")
 def warm_up_embeddings():
     def _load():
-        get_embeddings()
-        print("[INFO] Embedding model warmed up")
+        import time
+        time.sleep(3)  # Allow container to pass initial cloud health checks
+        try:
+            get_embeddings()
+            print("[INFO] Embedding model warmed up")
+        except Exception as e:
+            print(f"[WARN] Embedding warmup error: {e}")
     threading.Thread(target=_load, daemon=True).start()
 
 # Enable CORS for Postman and frontend use
@@ -126,4 +131,6 @@ Please respond naturally and warmly to the user's message or question, and remin
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("fastapi_api:app", host="127.0.0.1", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    host = os.environ.get("HOST", "0.0.0.0")
+    uvicorn.run("fastapi_api:app", host=host, port=port)
