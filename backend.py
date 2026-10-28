@@ -284,34 +284,33 @@ def fetch_live_data_from_serper(query):
 # -----------------------------
 # 💬 Dynamic Enterprise Agentic RAG Pipeline (Zero Hardcoded Templates)
 # -----------------------------
-def generate_answer(user_question, retriever, include_sources=True):
-    # 1. Resolve active document metadata from retriever
-    doc_name = "Uploaded Document"
-    try:
-        sample_docs = retriever.invoke("document overview")
-        if sample_docs and sample_docs[0].metadata:
-            doc_name = sample_docs[0].metadata.get("source", doc_name)
-    except Exception:
-        pass
+def generate_answer(user_question, retriever=None, include_sources=True):
+    # Case A: Document is loaded in memory -> Vector RAG + Document Intelligence
+    if retriever is not None:
+        doc_name = "Uploaded Document"
+        try:
+            sample_docs = retriever.invoke("document overview")
+            if sample_docs and sample_docs[0].metadata:
+                doc_name = sample_docs[0].metadata.get("source", doc_name)
+        except Exception:
+            pass
 
-    # 2. Retrieve relevant context chunks dynamically from FAISS vector store
-    q_lower = user_question.lower()
-    is_overview_request = any(w in q_lower for w in ["summary", "summarize", "overview", "what is this document", "what is this pdf", "about this pdf", "explain this file"])
-    retrieval_query = f"{user_question} overview key points summary" if is_overview_request else user_question
+        q_lower = user_question.lower()
+        is_overview_request = any(w in q_lower for w in ["summary", "summarize", "overview", "what is this document", "what is this pdf", "about this pdf", "explain this file"])
+        retrieval_query = f"{user_question} overview key points summary" if is_overview_request else user_question
 
-    relevant_docs = retriever.invoke(retrieval_query)
-    context = "\n\n".join([doc.page_content for doc in relevant_docs]) if relevant_docs else ""
+        relevant_docs = retriever.invoke(retrieval_query)
+        context = "\n\n".join([doc.page_content for doc in relevant_docs]) if relevant_docs else ""
 
-    sources = []
-    for doc in relevant_docs:
-        meta = doc.metadata or {}
-        sources.append({
-            "source": meta.get("source", doc_name),
-            "page": meta.get("page", 0),
-        })
+        sources = []
+        for doc in relevant_docs:
+            meta = doc.metadata or {}
+            sources.append({
+                "source": meta.get("source", doc_name),
+                "page": meta.get("page", 0),
+            })
 
-    # 3. Dynamic Enterprise Agentic Prompt (100% LLM-driven generation)
-    prompt = f"""You are an elite, enterprise AI Document Intelligence Analyst assisting a user with the document '{doc_name}'.
+        prompt = f"""You are an elite, enterprise AI Document Intelligence Analyst assisting a user with the document '{doc_name}'.
 
 Operational Directives:
 1. Conversational & Greeting Inquiries: If the user message is a greeting, pleasantry, or opening inquiry (e.g. 'hello', 'hi', 'how are you', 'what can you do'), respond naturally, warmly, and concisely in 1-2 professional sentences acknowledging the document '{doc_name}'. DO NOT dump the document contents or summarize it unless specifically requested.
@@ -328,36 +327,60 @@ Document Context ('{doc_name}'):
 User Query: {user_question}
 """
 
-    response = llm.invoke(prompt)
-    answer_text = response.content.strip()
+        response = llm.invoke(prompt)
+        answer_text = response.content.strip()
 
-    # 4. Handle Live Search Fallback if external information is required
-    if "[WEB_SEARCH_REQUIRED]" in answer_text:
-        print(f"🔍 Dynamic web search routed for query: '{user_question}'")
-        live_answer = fetch_live_answer_with_serper(user_question, llm)
-        if include_sources:
-            live_answer += "\n\n---\n*Source: Real-time Web Search (Google Serper)*"
-        return live_answer
+        # Handle Live Search Fallback if external information is required
+        if "[WEB_SEARCH_REQUIRED]" in answer_text:
+            print(f"[SEARCH] Dynamic web search routed for query: '{user_question}'")
+            live_answer = fetch_live_answer_with_serper(user_question, llm)
+            if include_sources:
+                live_answer += "\n\n---\n*Source: Real-time Web Search (Google Serper)*"
+            return live_answer
 
-    # 5. Attach Verified Source Citations dynamically if document context was cited
-    has_doc_citation = "[DOC_CITED]" in answer_text
-    clean_answer = answer_text.replace("[DOC_CITED]", "").strip()
+        # Attach Verified Source Citations dynamically if document context was cited
+        has_doc_citation = "[DOC_CITED]" in answer_text
+        clean_answer = answer_text.replace("[DOC_CITED]", "").strip()
 
-    if include_sources and has_doc_citation and sources:
-        seen = set()
-        unique_sources = []
-        for s in sources:
-            key = (s["source"], s["page"])
-            if key not in seen:
-                seen.add(key)
-                unique_sources.append(s)
+        if include_sources and has_doc_citation and sources:
+            seen = set()
+            unique_sources = []
+            for s in sources:
+                key = (s["source"], s["page"])
+                if key not in seen:
+                    seen.add(key)
+                    unique_sources.append(s)
 
-        source_lines = "\n".join([
-            f"- **{s['source']}** (Page {s['page'] + 1})" for s in unique_sources
-        ])
-        clean_answer = f"{clean_answer}\n\n---\n**Verified Sources:**\n{source_lines}"
+            source_lines = "\n".join([
+                f"- **{s['source']}** (Page {s['page'] + 1})" for s in unique_sources
+            ])
+            clean_answer = f"{clean_answer}\n\n---\n**Verified Sources:**\n{source_lines}"
 
-    return clean_answer
+        return clean_answer
+
+    # Case B: No document uploaded yet -> Real-Time Live Web Search + General Knowledge Mode
+    else:
+        prompt = f"""You are an elite AI Document & Real-Time Research Analyst.
+Currently, no PDF document has been uploaded yet.
+
+Operational Directives:
+1. Greetings / Pleasantries: If the user sends a greeting or small talk ('hi', 'hello', 'hey', 'who are you'), respond warmly, concisely, and professionally in 1-2 sentences. Let them know they can ask any live questions or upload PDF documents via the sidebar for deep-dive analysis and citation extraction.
+2. Real-Time / Current Affairs / Factual Queries: If the user asks about current events, leaders, sports, politics, weather, dates, real-world entities, or specific facts (e.g. 'cm of ap', 'who is the CEO of X', 'today news'), output exactly: [WEB_SEARCH_REQUIRED] so real-time Google web search can provide the live answer.
+3. General Analytical / Technical QA: If the user asks general technical, programming, mathematical, or conceptual questions, answer directly, authoritatively, and concisely in clean Markdown.
+
+User Query: {user_question}
+"""
+        response = llm.invoke(prompt)
+        answer_text = response.content.strip()
+
+        if "[WEB_SEARCH_REQUIRED]" in answer_text:
+            print(f"[SEARCH] Live web search for ungrounded query: '{user_question}'")
+            live_answer = fetch_live_answer_with_serper(user_question, llm)
+            if include_sources:
+                live_answer += "\n\n---\n*Source: Real-time Web Search (Google Serper)*"
+            return live_answer
+
+        return answer_text
 
 
 # Dedicated live search LLM instance (compact token budget to prevent OTPM 429)

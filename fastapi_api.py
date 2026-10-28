@@ -104,23 +104,13 @@ def health():
 @app.post("/chat")
 async def chat_with_pdf(request: ChatRequest):
     """
-    Ask a question about the uploaded PDF.
-    If no PDF is uploaded yet, responds politely and guides the user.
+    Chat endpoint for real-time document intelligence and live web research.
     """
     global retriever
 
     try:
-        if retriever is None:
-            prompt = f"""You are a helpful and polite AI Assistant for a RAG PDF Document Analyser application.
-The user said: "{request.question}"
-Note: No PDF document has been uploaded yet by the user.
-Please respond naturally and warmly to the user's message or question, and remind them that they can upload a PDF document anytime using the "Upload Files" button on the left sidebar to enable document analysis, citation search, and diagram extraction."""
-            response = await asyncio.to_thread(llm.invoke, prompt)
-            return {"question": request.question, "answer": response.content}
-
         question = request.question
         answer = await asyncio.to_thread(generate_answer, question, retriever)
-
         return {"question": question, "answer": answer}
     except Exception as e:
         import traceback
