@@ -25,12 +25,45 @@ if not GROQ_API_KEY:
 if not SERPER_API_KEY:
     raise ValueError("❌ SERPER_API_KEY not found in .env file.")
 
-try:
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings
-except ImportError:
-    GoogleGenerativeAIEmbeddings = None
+# 2️⃣ Direct Google Gemini REST Embeddings (zero SDK dependency conflicts, instant GPU compute)
+class GeminiRESTEmbeddings(Embeddings):
+    """
+    Direct REST embedding client for Google Gemini API.
+    Bypasses SDK version conflicts, consumes 0% container CPU, and embeds chunks via Google GPU in ~0.5s.
+    """
+    def __init__(self, api_key: str, model: str = "models/gemini-embedding-001"):
+        self.api_key = api_key
+        self.model = model
+        self.url = f"https://generativelanguage.googleapis.com/v1beta/{model}:batchEmbedContents?key={api_key}"
 
-# 2️⃣ Lightweight FastEmbed Embeddings (<50MB RAM, ONNX runtime, no PyTorch)
+    def embed_documents(self, texts):
+        if not texts:
+            return []
+        batch_size = 50
+        all_embeddings = []
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+            payload = {
+                "requests": [
+                    {
+                        "model": self.model,
+                        "content": {"parts": [{"text": t}]}
+                    }
+                    for t in batch
+                ]
+            }
+            res = requests.post(self.url, json=payload, timeout=30)
+            if res.status_code != 200:
+                raise ValueError(f"Gemini Embedding API Error ({res.status_code}): {res.text}")
+            data = res.json()
+            all_embeddings.extend([e["values"] for e in data["embeddings"]])
+        return all_embeddings
+
+    def embed_query(self, text):
+        res = self.embed_documents([text])
+        return res[0]
+
+# Lightweight FastEmbed Fallback (for offline or missing API key)
 class LightweightFastEmbed(Embeddings):
     """
     Ultra-lightweight ONNX-powered embedding model (FastEmbed).
@@ -51,14 +84,11 @@ _embeddings = None
 def get_embeddings():
     global _embeddings
     if _embeddings is None:
-        if GEMINI_API_KEY and GoogleGenerativeAIEmbeddings is not None:
-            print("[INFO] Using Google Gemini Cloud Embeddings (instant, 0% container CPU)")
-            _embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/gemini-embedding-001",
-                google_api_key=GEMINI_API_KEY
-            )
+        if GEMINI_API_KEY:
+            print("[INFO] Using Google Gemini Cloud Embeddings via REST (instant, 0% container CPU)")
+            _embeddings = GeminiRESTEmbeddings(api_key=GEMINI_API_KEY)
         else:
-            print("[INFO] Using local LightweightFastEmbed")
+            print("[INFO] Using local LightweightFastEmbed fallback")
             _embeddings = LightweightFastEmbed(model_name="BAAI/bge-small-en-v1.5")
     return _embeddings
 
