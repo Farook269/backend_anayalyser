@@ -102,18 +102,26 @@ async def chat_with_pdf(request: ChatRequest):
     """
     global retriever
 
-    if retriever is None:
-        prompt = f"""You are a helpful and polite AI Assistant for a RAG PDF Document Analyser application.
+    try:
+        if retriever is None:
+            prompt = f"""You are a helpful and polite AI Assistant for a RAG PDF Document Analyser application.
 The user said: "{request.question}"
 Note: No PDF document has been uploaded yet by the user.
 Please respond naturally and warmly to the user's message or question, and remind them that they can upload a PDF document anytime using the "Upload Files" button on the left sidebar to enable document analysis, citation search, and diagram extraction."""
-        response = llm.invoke(prompt)
-        return {"question": request.question, "answer": response.content}
+            response = await asyncio.to_thread(llm.invoke, prompt)
+            return {"question": request.question, "answer": response.content}
 
-    question = request.question
-    answer = generate_answer(question, retriever)
+        question = request.question
+        answer = await asyncio.to_thread(generate_answer, question, retriever)
 
-    return {"question": question, "answer": answer}
+        return {"question": question, "answer": answer}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            "question": request.question,
+            "answer": f"⚠️ An error occurred: {str(e)}"
+        }
 
 
 if __name__ == "__main__":
