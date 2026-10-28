@@ -19,11 +19,15 @@ load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+USE_LOCAL_LLM = os.getenv("USE_LOCAL_LLM", "false").lower() == "true"
+LOCAL_MODEL_NAME = os.getenv("LOCAL_MODEL_NAME", "qwen2.5:7b")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 
-if not GROQ_API_KEY:
-    raise ValueError("❌ GROQ_API_KEY not found in .env file.")
-if not SERPER_API_KEY:
-    raise ValueError("❌ SERPER_API_KEY not found in .env file.")
+if not USE_LOCAL_LLM:
+    if not GROQ_API_KEY:
+        raise ValueError("❌ GROQ_API_KEY not found in .env file.")
+    if not SERPER_API_KEY:
+        raise ValueError("❌ SERPER_API_KEY not found in .env file.")
 
 # 2️⃣ Direct Google Gemini REST Embeddings (zero SDK dependency conflicts, instant GPU compute)
 class GeminiRESTEmbeddings(Embeddings):
@@ -84,7 +88,10 @@ _embeddings = None
 def get_embeddings():
     global _embeddings
     if _embeddings is None:
-        if GEMINI_API_KEY:
+        if USE_LOCAL_LLM:
+            print("[INFO] Using 100% Local FastEmbed ONNX Embeddings (BAAI/bge-small-en-v1.5, 0 cloud calls)")
+            _embeddings = LightweightFastEmbed(model_name="BAAI/bge-small-en-v1.5")
+        elif GEMINI_API_KEY:
             print("[INFO] Using Google Gemini Cloud Embeddings via REST (instant, 0% container CPU)")
             _embeddings = GeminiRESTEmbeddings(api_key=GEMINI_API_KEY)
         else:
@@ -99,33 +106,49 @@ def get_embeddings():
 
 
 
-# 3️⃣ Model names — both free-tier on Groq (rate-limited, no card required)
+# 3️⃣ Model setup (Local Ollama vs Cloud Groq)
 TEXT_MODEL = "qwen/qwen3.8-27b"
 VISION_MODEL = "qwen/qwen3.8-27b"
 
- # Step 2: Initialize Groq LLM (bounded output tokens to satisfy Groq 1000 OTPM limit)
-llm = ChatGroq(
+if USE_LOCAL_LLM:
+    from langchain_community.chat_models import ChatOllama
+    print(f"[INFO] Initializing 100% Local LLM via Ollama ({LOCAL_MODEL_NAME}) at {OLLAMA_BASE_URL}")
+    llm = ChatOllama(
+        base_url=OLLAMA_BASE_URL,
+        model=LOCAL_MODEL_NAME,
+        temperature=0.2,
+        num_predict=400,
+    )
+else:
+    llm = ChatGroq(
         model=TEXT_MODEL,
         temperature=0.3,
         max_tokens=600,
         groq_api_key=GROQ_API_KEY
-)
+    )
 
 # -----------------------------
 # 🖼️ Vision-based page analysis (for scanned pages / diagrams / flowcharts)
 # -----------------------------
-# Shared vision LLM instance (lazy initialized)
 _vision_llm = None
 
 def get_vision_llm():
     global _vision_llm
     if _vision_llm is None:
-        _vision_llm = ChatGroq(
-            model=VISION_MODEL,
-            temperature=0.2,
-            max_tokens=500,
-            groq_api_key=GROQ_API_KEY,
-        )
+        if USE_LOCAL_LLM:
+            from langchain_community.chat_models import ChatOllama
+            _vision_llm = ChatOllama(
+                base_url=OLLAMA_BASE_URL,
+                model="llama3.2-vision:latest",
+                temperature=0.2,
+            )
+        else:
+            _vision_llm = ChatGroq(
+                model=VISION_MODEL,
+                temperature=0.2,
+                max_tokens=500,
+                groq_api_key=GROQ_API_KEY,
+            )
     return _vision_llm
 
 
@@ -389,12 +412,20 @@ _serper_llm = None
 def get_serper_llm():
     global _serper_llm
     if _serper_llm is None:
-        _serper_llm = ChatGroq(
-            model=TEXT_MODEL,
-            temperature=0.2,
-            max_tokens=250,
-            groq_api_key=GROQ_API_KEY,
-        )
+        if USE_LOCAL_LLM:
+            from langchain_community.chat_models import ChatOllama
+            _serper_llm = ChatOllama(
+                base_url=OLLAMA_BASE_URL,
+                model=LOCAL_MODEL_NAME,
+                temperature=0.2,
+            )
+        else:
+            _serper_llm = ChatGroq(
+                model=TEXT_MODEL,
+                temperature=0.2,
+                max_tokens=250,
+                groq_api_key=GROQ_API_KEY,
+            )
     return _serper_llm
 
 
