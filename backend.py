@@ -285,8 +285,45 @@ def fetch_live_data_from_serper(query):
 # 💬 Combine RAG + Serper + General fallback
 # -----------------------------
 def generate_answer(user_question, retriever, include_sources=True):
-    # Step 1: Detect if the user is asking an overview/meta question about the uploaded document
     q_lower = user_question.lower().strip()
+    clean_q = "".join(c for c in q_lower if c.isalnum() or c.isspace()).strip()
+
+    # Step 0: Conversational greeting and intent routing
+    greetings_words = {"hello", "hi", "hey", "greetings", "howdy", "sup", "yo", "morning", "afternoon", "evening"}
+    meta_phrases = {"who are you", "what can you do", "help", "how do you work", "commands", "what is this app"}
+
+    tokens = clean_q.split()
+    is_greeting = (
+        clean_q in greetings_words
+        or clean_q in meta_phrases
+        or (
+            len(tokens) <= 3
+            and any(t in greetings_words for t in tokens)
+            and not any(t in ["summary", "summarize", "skills", "experience", "what", "who", "tell", "explain", "analyze", "overview", "projects", "education"] for t in tokens)
+        )
+    )
+
+    if is_greeting:
+        doc_name = "your uploaded document"
+        try:
+            sample_docs = retriever.invoke("document")
+            if sample_docs and sample_docs[0].metadata:
+                doc_name = sample_docs[0].metadata.get("source", doc_name)
+        except Exception:
+            pass
+
+        return f"""Hello! I am your **AI Document Intelligence Analyst**.
+
+I have processed and indexed **`{doc_name}`** and am ready to assist you.
+
+### Recommended Inquiries:
+- **Executive Summary:** *"Provide an executive summary of this document"*
+- **Core Competencies & Metrics:** *"What are the key technical skills, achievements, or project metrics?"*
+- **Targeted Deep-Dive:** Ask any specific question regarding technologies, career trajectory, or data figures.
+
+How can I assist your document analysis today?"""
+
+    # Step 1: Detect if the user is asking an overview/meta question about the uploaded document
     doc_keywords = [
         "what is the pdf", "what is this pdf", "about the pdf", "summarize", "summary",
         "overview", "explain the pdf", "explain me about the pdf", "explain me aobut the pdf",
@@ -315,17 +352,25 @@ def generate_answer(user_question, retriever, include_sources=True):
             "page": meta.get("page", 0),
         })
 
-    # Step 2: Synthesize answer from context
+    # Step 2: Synthesize answer from context with executive tone
     if context.strip():
-        prompt = f"""You are a professional, accurate document assistant analyzing an uploaded document.
-The user's question is: "{user_question}"
+        prompt = f"""You are an elite, highly professional Document Intelligence Analyst.
+Your goal is to provide direct, executive-level, clear, and structured answers based on the uploaded document.
 
-Instructions:
-1. "The PDF", "the document", or "this file" refers to the uploaded document represented in the Context below.
-2. If the user asks for a summary or "what is the pdf about", synthesize the context and provide a structured, thorough overview of who or what the document is about, key skills/topics, projects, and main details.
-3. Base your answer strictly on the provided Context.
-4. Format your answer in clean Markdown: use **bold** for key terms, names, and metrics. Use clear bullet points and sub-headings (##) if multiple topics are covered.
-5. ONLY if the Context contains absolutely no relevant information to answer the question, respond with: "Not found in PDFs."
+Question: "{user_question}"
+
+EXECUTIVE RESPONSE GUIDELINES:
+1. DIRECTNESS: Do NOT include fluff, introductory conversational filler, or boilerplate like "Hello!", "Based on the provided document...", or "Sure, here is...". Dive immediately into the factual answer.
+2. STRUCTURE:
+   - Start with a direct 1-2 sentence core finding.
+   - Use bold headers (###) and bullet points to organize insights logically.
+   - Highlight key metrics, technologies, dates, and titles in **bold**.
+   - Use Markdown tables when presenting comparative or multi-attribute information.
+3. FACTUAL INTEGRITY:
+   - Rely strictly on the Context below. Do not invent or assume facts not present.
+   - Preserve exact numbers, formulas, and percentages verbatim.
+4. OUT-OF-DOCUMENT FALLBACK:
+   - If the Context does NOT contain information to answer the question, output ONLY: "Not found in PDFs."
 
 Context:
 {context}
@@ -336,7 +381,6 @@ Context:
         # Step 3: Handle Fallback
         if "Not found in PDFs" in answer_text:
             if is_doc_meta_query:
-                # Do NOT search Google for "what is the pdf about" — that would search for the Adobe PDF file format!
                 answer_text = (
                     "The uploaded document does not appear to contain sufficient information to answer that specific question. "
                     "Please ask a more specific question about the document's content."
@@ -368,11 +412,11 @@ Context:
                     unique_sources.append(s)
 
             source_lines = "\n".join([
-                f"- {s['source']} (page {s['page'] + 1})" for s in unique_sources
+                f"- **{s['source']}** (Page {s['page'] + 1})" for s in unique_sources
             ])
-            source_md = f"\n\n---\n### Sources\n{source_lines}"
+            source_md = f"\n\n---\n**Verified Sources:**\n{source_lines}"
         else:
-            source_md = "\n\n---\n### Sources\nGenerated by LLM (no PDF match found)"
+            source_md = "\n\n---\n*Source: Real-time Web Search (Google Serper)*"
 
         answer_text = f"{answer_text}{source_md}"
 
