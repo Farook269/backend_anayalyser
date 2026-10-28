@@ -5,7 +5,8 @@ import requests
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.embeddings import Embeddings
+from fastembed import TextEmbedding
 from langchain_community.vectorstores import FAISS
 from langchain_groq import ChatGroq
 from langchain_core.documents import Document
@@ -23,21 +24,28 @@ if not GROQ_API_KEY:
 if not SERPER_API_KEY:
     raise ValueError("❌ SERPER_API_KEY not found in .env file.")
 
-# 2️⃣ Initialize Embedding model
+# 2️⃣ Lightweight FastEmbed Embeddings (<50MB RAM, ONNX runtime, no PyTorch)
+class LightweightFastEmbed(Embeddings):
+    """
+    Ultra-lightweight ONNX-powered embedding model (FastEmbed).
+    Consumes ~40MB RAM (vs 500MB+ for PyTorch sentence-transformers),
+    fitting easily within Render 512MB free tier containers.
+    """
+    def __init__(self, model_name="BAAI/bge-small-en-v1.5"):
+        self.model = TextEmbedding(model_name=model_name)
 
-# 2️⃣ Initialize Embedding model (lazy — avoid loading torch/model at import time)
+    def embed_documents(self, texts):
+        return [list(e) for e in self.model.embed(texts)]
+
+    def embed_query(self, text):
+        return list(next(self.model.embed([text])))
+
 _embeddings = None
 
 def get_embeddings():
     global _embeddings
     if _embeddings is None:
-        import torch
-        torch.set_num_threads(1)  # Limit CPU threads to 1 to avoid throttling on cloud containers
-        _embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_kwargs={"device": "cpu"},
-            encode_kwargs={"normalize_embeddings": True, "batch_size": 16}
-        )
+        _embeddings = LightweightFastEmbed(model_name="BAAI/bge-small-en-v1.5")
     return _embeddings
 
 
