@@ -42,21 +42,37 @@ def get_embeddings():
 
 
 # 3️⃣ Model names — both free-tier on Groq (rate-limited, no card required)
-TEXT_MODEL = "openai/gpt-oss-20b"
-VISION_MODEL = "qwen/qwen3.6-27b"
+TEXT_MODEL = "qwen/qwen3.8-27b"
+VISION_MODEL = "qwen/qwen3.8-27b"
 
- # Step 2: Initialize Groq LLM
+ # Step 2: Initialize Groq LLM (bounded output tokens to satisfy Groq 1000 OTPM limit)
 llm = ChatGroq(
         model=TEXT_MODEL,
         temperature=0.3,
+        max_tokens=600,
         groq_api_key=GROQ_API_KEY
 )
 
 # -----------------------------
 # 🖼️ Vision-based page analysis (for scanned pages / diagrams / flowcharts)
 # -----------------------------
-def _page_to_base64(pdf_path, page_number, zoom=2.0):
-    """Render a single PDF page to a base64 PNG string."""
+# Shared vision LLM instance (lazy initialized)
+_vision_llm = None
+
+def get_vision_llm():
+    global _vision_llm
+    if _vision_llm is None:
+        _vision_llm = ChatGroq(
+            model=VISION_MODEL,
+            temperature=0.2,
+            max_tokens=500,
+            groq_api_key=GROQ_API_KEY,
+        )
+    return _vision_llm
+
+
+def _page_to_base64(pdf_path, page_number, zoom=1.2):
+    """Render a single PDF page to a base64 PNG string with optimized resolution."""
     doc = fitz.open(pdf_path)
     page = doc[page_number]
     mat = fitz.Matrix(zoom, zoom)
@@ -72,12 +88,7 @@ def _describe_page_with_vision(pdf_path, page_number):
     including any diagrams, flowcharts, or images.
     """
     b64_image = _page_to_base64(pdf_path, page_number)
-
-    vision_llm = ChatGroq(
-        model=VISION_MODEL,
-        temperature=0.2,
-        groq_api_key=GROQ_API_KEY,
-    )
+    vision_llm = get_vision_llm()
 
     prompt = """Extract all information from this document page.
 
@@ -102,34 +113,36 @@ def _describe_page_with_vision(pdf_path, page_number):
     return response.content.strip()
 
 
-def _page_has_image(pdf_path, page_number):
-    """Check whether a page actually contains an embedded image/diagram."""
-    doc = fitz.open(pdf_path)
-    has_image = len(doc[page_number].get_images(full=True)) > 0
+def extract_documents_with_vision(path, min_text_len=30):
+    """
+    High-performance text extraction using PyMuPDF (fitz).
+    Natively parses pages in milliseconds. Vision is ONLY invoked
+    if a page contains virtually no extractable text AND contains an embedded image
+    (e.g. scanned document, pure diagram, or infographic).
+    """
+    doc = fitz.open(path)
+    page_texts = {}
+    pages_with_images = set()
+
+    for i in range(len(doc)):
+        page = doc[i]
+        text = page.get_text("text").strip()
+        page_texts[i] = text
+        if len(page.get_images()) > 0:
+            pages_with_images.add(i)
+
     doc.close()
-    return has_image
 
-
-def extract_documents_with_vision(path, min_text_len=40):
-    """
-    Extract text per page. Vision is only invoked for pages that BOTH have
-    little native text AND contain an embedded image — this avoids wasting
-    a vision call on normal text pages that PyPDFLoader under-extracts
-    (e.g. resumes with tight column layouts). Vision calls run in parallel
-    to avoid stacking up upload latency page-by-page.
-    """
-    loader = PyPDFLoader(path)
-    pages = loader.load()
-
-    page_texts = {i: (p.page_content or "") for i, p in enumerate(pages)}
+    # Only call Vision LLM on pages that both lack native text AND actually have images
     needs_vision = [
         i for i, text in page_texts.items()
-        if len(text.strip()) < min_text_len
+        if len(text) < min_text_len and i in pages_with_images
     ]
 
     vision_results = {}
     if needs_vision:
-        with ThreadPoolExecutor(max_workers=min(4, len(needs_vision))) as executor:
+        print(f"[INFO] Running vision extraction on {len(needs_vision)} visual/scanned page(s): {needs_vision}")
+        with ThreadPoolExecutor(max_workers=min(3, len(needs_vision))) as executor:
             future_to_page = {
                 executor.submit(_describe_page_with_vision, path, i): i
                 for i in needs_vision
@@ -139,7 +152,7 @@ def extract_documents_with_vision(path, min_text_len=40):
                 try:
                     vision_results[i] = future.result()
                 except Exception as e:
-                    print(f"⚠️ Vision extraction failed on page {i}: {e}")
+                    print(f"[WARN] Vision extraction failed on page {i}: {e}")
 
     docs = []
     for i, text in page_texts.items():
@@ -181,7 +194,7 @@ def create_pdf_retriever(file_paths):
         )
 
     vectorstore = FAISS.from_documents(all_docs, get_embeddings())
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
     return retriever
 
 
@@ -214,8 +227,27 @@ def fetch_live_data_from_serper(query):
 # 💬 Combine RAG + Serper + General fallback
 # -----------------------------
 def generate_answer(user_question, retriever, include_sources=True):
-    # Step 1: Retrieve document context
-    relevant_docs = retriever.invoke(user_question)
+    # Step 1: Detect if the user is asking an overview/meta question about the uploaded document
+    q_lower = user_question.lower().strip()
+    doc_keywords = [
+        "what is the pdf", "what is this pdf", "about the pdf", "summarize", "summary",
+        "overview", "explain the pdf", "explain me about the pdf", "explain me aobut the pdf",
+        "explain this pdf", "about this document", "about the document", "who is this",
+        "who is the person", "tell me about this", "what is in this", "what is this document",
+        "what is this file", "describe the pdf", "describe this document"
+    ]
+    is_doc_meta_query = any(k in q_lower for k in doc_keywords)
+
+    # Retrieve relevant chunks (for broad overview questions, query broadly to capture full context)
+    if is_doc_meta_query:
+        relevant_docs = retriever.invoke("summary overview introduction profile background experience skills content")
+    else:
+        relevant_docs = retriever.invoke(user_question)
+
+    # Fallback to direct query if broad retrieval returned empty
+    if not relevant_docs:
+        relevant_docs = retriever.invoke(user_question)
+
     context = "\n\n".join([doc.page_content for doc in relevant_docs]) if relevant_docs else ""
     sources = []
     for doc in relevant_docs:
@@ -225,42 +257,45 @@ def generate_answer(user_question, retriever, include_sources=True):
             "page": meta.get("page", 0),
         })
 
-   
-
-    # Step 3: If context found, use it
+    # Step 2: Synthesize answer from context
     if context.strip():
-        prompt = f"""
-            You are a professional assistant helping answer questions using document context.
-            Write a clear, well-organized answer in your own words — do not copy raw text or
-            bullet-dump the context verbatim. Synthesize the information into a natural,
-            readable response, using short paragraphs or clean bullet points only where it
-            genuinely helps clarity.
+        prompt = f"""You are a professional, accurate document assistant analyzing an uploaded document.
+The user's question is: "{user_question}"
 
-            Format the answer in Markdown: **bold** key terms, names, numbers, and important
-            facts. Use bullet points or numbered lists when listing multiple items (e.g. skills,
-            dates, steps). Use short sub-headings (##) if the answer covers more than one topic.
+Instructions:
+1. "The PDF", "the document", or "this file" refers to the uploaded document represented in the Context below.
+2. If the user asks for a summary or "what is the pdf about", synthesize the context and provide a structured, thorough overview of who or what the document is about, key skills/topics, projects, and main details.
+3. Base your answer strictly on the provided Context.
+4. Format your answer in clean Markdown: use **bold** for key terms, names, and metrics. Use clear bullet points and sub-headings (##) if multiple topics are covered.
+5. ONLY if the Context contains absolutely no relevant information to answer the question, respond with: "Not found in PDFs."
 
-            If the answer is not present in the context, respond only with: "Not found in PDFs."
-
-            Context:
-            {context}
-
-            Question:
-            {user_question}
-            """
+Context:
+{context}
+"""
         response = llm.invoke(prompt)
         answer_text = response.content
 
-        # Step 4: Fallback to Serper if PDF doesn't help
+        # Step 3: Handle Fallback
         if "Not found in PDFs" in answer_text:
-            print("🔍 Falling back to live Serper search...")
+            if is_doc_meta_query:
+                # Do NOT search Google for "what is the pdf about" — that would search for the Adobe PDF file format!
+                answer_text = (
+                    "The uploaded document does not appear to contain sufficient information to answer that specific question. "
+                    "Please ask a more specific question about the document's content."
+                )
+                sources = []
+            else:
+                print("🔍 Falling back to live Serper search...")
+                answer_text = fetch_live_answer_with_serper(user_question, llm)
+                sources = []
+    else:
+        if is_doc_meta_query:
+            answer_text = "No extractable text found in the uploaded document. Please check the file."
+            sources = []
+        else:
+            print("🔍 No PDF context found — using live Serper search...")
             answer_text = fetch_live_answer_with_serper(user_question, llm)
             sources = []
-    else:
-        # Step 5: If no PDF context, go directly to Serper
-        print("🔍 No PDF context found — using live Serper search...")
-        answer_text = fetch_live_answer_with_serper(user_question, llm)
-        sources = []
 
     # Step 6: Format sources for UI if requested
     if include_sources:
@@ -286,24 +321,42 @@ def generate_answer(user_question, retriever, include_sources=True):
     return answer_text
 
 
+# Dedicated live search LLM instance (compact token budget to prevent OTPM 429)
+_serper_llm = None
+
+def get_serper_llm():
+    global _serper_llm
+    if _serper_llm is None:
+        _serper_llm = ChatGroq(
+            model=TEXT_MODEL,
+            temperature=0.2,
+            max_tokens=250,
+            groq_api_key=GROQ_API_KEY,
+        )
+    return _serper_llm
+
+
 # Use Serper API + LLM for live answers
-def fetch_live_answer_with_serper(question, llm):
-    serper_context = fetch_live_data_from_serper(question)
+def fetch_live_answer_with_serper(question, llm=None):
+    try:
+        serper_context = fetch_live_data_from_serper(question)
+        search_model = get_serper_llm()
 
-    prompt = f"""
-    You are a factual assistant. Using the following live web search results,
-    extract the **most accurate and up-to-date information** related to the question.
+        prompt = f"""You are a factual assistant. Using the following live web search results,
+extract the most accurate and up-to-date answer to the question concisely in markdown.
+Do not call any tools or functions. Output plain text directly.
 
-    Context:
-    {serper_context}
+Context:
+{serper_context}
 
-    Question:
-    {question}
-
-    Only return the factual answer, not explanation.
-    """
-    response = llm.invoke(prompt)
-    return response.content.strip()
+Question:
+{question}
+"""
+        response = search_model.invoke(prompt)
+        return response.content.strip()
+    except Exception as e:
+        print(f"[WARN] Live search fallback failed: {e}")
+        return f"Could not retrieve live information for '{question}'. (Error: {str(e)})"
 
 
 # ================================================================
