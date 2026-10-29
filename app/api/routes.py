@@ -14,6 +14,18 @@ router = APIRouter()
 retriever = None
 
 
+def rebuild_active_retriever():
+    """Builds retriever from ALL active PDFs currently in UPLOAD_DIR."""
+    pdf_files = [
+        os.path.join(UPLOAD_DIR, f)
+        for f in os.listdir(UPLOAD_DIR)
+        if f.lower().endswith(".pdf")
+    ]
+    if not pdf_files:
+        return None
+    return create_pdf_retriever(pdf_files)
+
+
 @router.get("/", response_model=dict)
 def home():
     return {"message": "✅ Enterprise Document Intelligence RAG API is running!"}
@@ -27,32 +39,55 @@ def health():
 @router.post("/upload", response_model=UploadResponse)
 async def upload_pdf(file: UploadFile = File(...)):
     """
-    Upload a new PDF file.
-    Replaces previously uploaded files and initializes the active FAISS retriever.
+    Upload a new PDF file and index ALL active uploaded PDFs together in memory.
     """
     global retriever
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file selected.")
 
-    # Clean up old files safely to conserve disk space
-    gc.collect()
-    for old_file in os.listdir(UPLOAD_DIR):
-        if old_file != file.filename:
-            try:
-                os.remove(os.path.join(UPLOAD_DIR, old_file))
-            except Exception as e:
-                print(f"[INFO] Cleaned old file notice: {old_file} ({e})")
-
-    # Save new uploaded PDF
+    # Save new uploaded PDF into UPLOAD_DIR
     file_path = os.path.join(UPLOAD_DIR, file.filename)
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Build retriever in a non-blocking threadpool worker
-    retriever = await asyncio.to_thread(create_pdf_retriever, [file_path])
+    # Rebuild retriever across ALL active PDF documents
+    retriever = await asyncio.to_thread(rebuild_active_retriever)
 
     return {"status": "success", "file_uploaded": file.filename}
+
+
+@router.delete("/files/{filename}")
+async def delete_file(filename: str):
+    """
+    Remove a specific file and update the active retriever with remaining files.
+    """
+    global retriever
+    file_path = os.path.join(UPLOAD_DIR, filename)
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception as e:
+            print(f"[WARN] Failed to delete file {filename}: {e}")
+
+    retriever = await asyncio.to_thread(rebuild_active_retriever)
+    return {"status": "removed", "file": filename}
+
+
+@router.post("/clear")
+def clear_all():
+    """
+    Clear all uploaded files and reset the retriever.
+    """
+    global retriever
+    retriever = None
+    gc.collect()
+    for f in os.listdir(UPLOAD_DIR):
+        try:
+            os.remove(os.path.join(UPLOAD_DIR, f))
+        except Exception as e:
+            print(f"[WARN] Error clearing file {f}: {e}")
+    return {"status": "cleared"}
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -73,4 +108,3 @@ async def chat_with_pdf(request: ChatRequest):
             "question": request.question,
             "answer": f"⚠️ An error occurred: {str(e)}"
         }
-
