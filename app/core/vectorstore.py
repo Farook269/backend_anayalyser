@@ -6,11 +6,12 @@ from app.core.embeddings import get_embeddings
 
 def create_pdf_retriever(file_paths):
     """
-    Parses PDF documents, recursively splits content into overlapping chunks,
+    Parses PDF documents, splits content into cohesive page-level chunks,
     and returns a FAISS vectorstore retriever.
     """
     all_docs = []
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=150)
+    # Generous chunk size ensures full department sections and multi-item tables stay intact
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=2200, chunk_overlap=250)
     chunk_id = 0
 
     for path in file_paths:
@@ -29,6 +30,5 @@ def create_pdf_retriever(file_paths):
         )
 
     vectorstore = FAISS.from_documents(all_docs, get_embeddings())
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
     return retriever
-
