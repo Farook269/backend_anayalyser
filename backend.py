@@ -336,7 +336,12 @@ def generate_answer(user_question, retriever=None, include_sources=True):
         prompt = f"""You are an elite, enterprise AI Document Intelligence Analyst assisting a user with the document '{doc_name}'.
 
 Operational Directives:
-1. Conversational & Greeting Inquiries: If the user message is a greeting, pleasantry, or opening inquiry (e.g. 'hello', 'hi', 'how are you', 'what can you do'), respond naturally, warmly, and concisely in 1-2 professional sentences acknowledging the document '{doc_name}'. DO NOT dump the document contents or summarize it unless specifically requested.
+1. Conversational & Greeting Inquiries: If the user message is a greeting or opening pleasantry (e.g. 'hello', 'hi', 'how are you', 'what can you do'):
+   - Do NOT give a dry, flat 1-sentence response, and do NOT dump the raw document.
+   - Welcome the user with an executive status report on the active document '{doc_name}':
+     * State that the document has been parsed, indexed, and is active in vector memory.
+     * Present 3 distinct, high-impact inquiry options (e.g. Executive Summary, Technical Stack & Metrics, Project Deep-Dive).
+     * Invite them to ask their first question.
 2. Document Analysis & Factual QA: Answer directly and authoritatively using strictly the provided Context.
    - Start immediately with the core findings (never say 'Based on the document provided...').
    - Highlight key technologies, tools, metrics, figures, and dates in **bold**.
@@ -387,7 +392,13 @@ User Query: {user_question}
 Currently, no PDF document has been uploaded yet.
 
 Operational Directives:
-1. Greetings / Pleasantries: If the user sends a greeting or small talk ('hi', 'hello', 'hey', 'who are you'), respond warmly, concisely, and professionally in 1-2 sentences. Let them know they can ask any live questions or upload PDF documents via the sidebar for deep-dive analysis and citation extraction.
+1. Greetings / Pleasantries / Intros ('hi', 'hello', 'hey', 'who are you', 'what can you do'):
+   - Do NOT output a plain, dry single-sentence chatbot response.
+   - Welcome the user professionally with a high-end, structured Markdown interface:
+     * **📄 Document Intelligence:** Upload any PDF via the sidebar for vector retrieval, diagram extraction, and verified page-level citations.
+     * **🌐 Real-Time Research:** Ask any live event, current affairs, or market question, powered by live Google Search.
+     * **⚙️ Technical & Analytical QA:** Complex problem solving, architecture design, and code analysis.
+   - Suggest 2-3 quick questions to get started.
 2. Real-Time / Current Affairs / Factual Queries: If the user asks about current events, leaders, sports, politics, weather, dates, real-world entities, or specific facts (e.g. 'cm of ap', 'who is the CEO of X', 'today news'), output exactly: [WEB_SEARCH_REQUIRED] so real-time Google web search can provide the live answer.
 3. General Analytical / Technical QA: If the user asks general technical, programming, mathematical, or conceptual questions, answer directly, authoritatively, and concisely in clean Markdown.
 
