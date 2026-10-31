@@ -89,11 +89,11 @@ CORE GROUNDING RULES:
    - If the requested information cannot be answered from the provided context, reply strictly:
      "The requested information is not mentioned in the uploaded document."
 
-5. Professional Formatting:
-   - Provide direct, concise, and structured answers.
-   - Use bold markdown for key metrics, numbers, titles, and dates.
-   - Use clean bullet points (`- **Title:** details`) for multiple items or roles.
-   - Use numbered lists (`1. Step...`) for procedures.
+5. Mandatory Markdown Bolding for Key Entities & Metrics:
+   - ALWAYS format the main company name, organization names, and primary entities in **bold** (e.g., **Company Name**).
+   - ALWAYS format all key numbers, metrics, salary amounts/ranges, quantities, deadlines, and dates in **bold** (e.g., **11 paid company holidays**, **22 days**, **$92,000–$124,000 USD**, **8 calendar days**).
+   - Use clean bullet points with bold headers (`- **Role/Item:** details`) for multiple items or roles.
+   - Use numbered lists with bold steps (`1. **Step:** ...`) for procedures.
 """
 
         human_prompt = f"""Document Context:
