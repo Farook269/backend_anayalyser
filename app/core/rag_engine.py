@@ -60,13 +60,24 @@ def generate_answer(user_question, retriever=None, include_sources=True):
 
         context = "\n\n".join([doc.page_content for doc in relevant_docs]) if relevant_docs else ""
 
+        # Precision Citation Filtering: Only cite sources that are mathematically relevant to the inquiry
         sources = []
-        for doc in relevant_docs:
-            meta = doc.metadata or {}
-            sources.append({
-                "source": meta.get("source", doc_name),
-                "page": meta.get("page", 0),
-            })
+        if hasattr(retriever, "vectorstore") and results_with_scores:
+            citation_cutoff = max(best_score + 0.22, 0.78) if not is_overview_request else 1.25
+            for doc, score in results_with_scores:
+                if is_overview_request or (score <= citation_cutoff and score < 0.95):
+                    meta = doc.metadata or {}
+                    sources.append({
+                        "source": meta.get("source", doc_name),
+                        "page": meta.get("page", 0),
+                    })
+        else:
+            for doc in relevant_docs:
+                meta = doc.metadata or {}
+                sources.append({
+                    "source": meta.get("source", doc_name),
+                    "page": meta.get("page", 0),
+                })
 
         # 100% Universal, Domain-Agnostic System Prompt: Zero hardcoded keywords
         system_prompt = """You are an enterprise Document Intelligence AI Assistant.
