@@ -30,5 +30,5 @@ def create_pdf_retriever(file_paths):
         )
 
     vectorstore = FAISS.from_documents(all_docs, get_embeddings())
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 8})
     return retriever

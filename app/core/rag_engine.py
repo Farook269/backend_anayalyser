@@ -1,11 +1,13 @@
+import re
+from langchain_core.messages import SystemMessage, HumanMessage
 from app.core.llm import llm
 
 
 def generate_answer(user_question, retriever=None, include_sources=True):
     """
-    Universal, domain-agnostic Document Intelligence RAG Pipeline.
-    Adapts dynamically to any document type with structured formatting,
-    bold metrics, and clean grouped source provenance.
+    Universal, 100% domain-agnostic Document Intelligence RAG Pipeline.
+    Adapts dynamically to any PDF with zero hardcoded templates,
+    providing structured synthesis, bold metrics, and clean grouped citations.
     """
     # Case A: Document is loaded in memory -> Vector RAG + Strict Grounding
     if retriever is not None:
@@ -42,25 +44,17 @@ def generate_answer(user_question, retriever=None, include_sources=True):
         )
         retrieval_query = f"{user_question} overview key points summary" if is_overview_request else user_question
 
-        # Strict document grounding & vector distance thresholding
+        # Dynamic vector retrieval with k=8 to ensure comprehensive context across multi-page files
         relevant_docs = []
         if hasattr(retriever, "vectorstore"):
-            results_with_scores = retriever.vectorstore.similarity_search_with_score(retrieval_query, k=5)
+            results_with_scores = retriever.vectorstore.similarity_search_with_score(retrieval_query, k=8)
             best_score = results_with_scores[0][1] if results_with_scores else 999.0
-            if not is_overview_request and best_score > 1.15:
-                return f"The requested information is not mentioned in the uploaded document ({doc_name})."
+            
+            # 1.25 cutoff filters out completely off-topic inquiries
+            if not is_overview_request and best_score > 1.25:
+                return f"The requested information is not mentioned in the uploaded document."
 
-            # Filter out distant chunks to keep response focused on the user's specific query
-            if is_overview_request:
-                relevant_docs = [doc for doc, score in results_with_scores]
-            else:
-                max_score_cutoff = max(0.65, best_score + 0.18)
-                relevant_docs = [
-                    doc for doc, score in results_with_scores
-                    if score <= max_score_cutoff and score < 0.88
-                ]
-                if not relevant_docs and results_with_scores:
-                    relevant_docs = [results_with_scores[0][0]]
+            relevant_docs = [doc for doc, score in results_with_scores]
         else:
             relevant_docs = retriever.invoke(retrieval_query)
 
@@ -74,34 +68,77 @@ def generate_answer(user_question, retriever=None, include_sources=True):
                 "page": meta.get("page", 0),
             })
 
-        # Universal prompt with executive visual structuring and mandatory metric bolding
-        prompt = f"""You are an enterprise AI Document Intelligence Analyst assisting with: {doc_name}.
+        # 100% Universal, Domain-Agnostic System Prompt: Zero hardcoded keywords
+        system_prompt = """You are an enterprise Document Intelligence AI Assistant.
+Your objective is to answer the User Query factually, accurately, and professionally using ONLY the provided Document Context.
 
-Operational Directives:
-1. Strict Grounding: Answer strictly using ONLY the provided Document Context below. Never speculate, guess, or use outside knowledge.
-2. Query Relevancy & Scope:
-   - Answer specifically and directly what the user is asking for.
-   - Do not dump unrelated sections, chapters, or clauses that the user did not ask about.
-3. Visual Structure & Bolding (Essential):
-   - When an inquiry covers multiple items, policies, entitlements, or rules, ALWAYS format each item as a distinct markdown bullet point (`- **Item Name:** ...`). Never merge multiple distinct facts into a single unbroken paragraph.
-   - For sequential procedures or workflows, use numbered markdown steps (`1. **Step Name**: ...`).
-   - ALWAYS format all key numbers, figures, metrics, quantities, deadlines, dates, and amounts in **bold** (e.g. **22 days**, **12 days**, **6 days**, **8 calendar days**).
-4. Missing Information: If any requested fact is absent from the Document Context, state clearly:
-   "The requested information is not mentioned in the uploaded document."
+CORE GROUNDING RULES:
+1. Strict Factual Grounding:
+   - Base your answer exclusively on the statements, facts, tables, and data in the Document Context.
+   - Do NOT assume, extrapolate, or fabricate any data, figures, numbers, or roles that are not explicitly present in the context.
 
-Document Context:
+2. Entity & Role Verification:
+   - If the user asks about a specific person, role, position, title, department, or entity that is NOT mentioned in the context (for example, a job role or policy not mentioned in the document), state clearly:
+     "The requested information is not mentioned in the uploaded document."
+   - Never fabricate, estimate, or extrapolate numbers or ranges for unlisted entities.
+
+3. Semantic Intent & Lists:
+   - If the user asks "how many ...", about a list, categories, types, or counts (e.g. holidays, benefits, leave types, requirements, steps), carefully examine the relevant sections in the context. State the count and list the items clearly, even if the user's phrasing uses slightly different wording (e.g. "types of holidays" vs "company holidays").
+
+4. Missing Information:
+   - If the requested information cannot be answered from the provided context, reply strictly:
+     "The requested information is not mentioned in the uploaded document."
+
+5. Professional Formatting:
+   - Provide direct, concise, and structured answers.
+   - Use bold markdown for key metrics, numbers, titles, and dates.
+   - Use clean bullet points (`- **Title:** details`) for multiple items or roles.
+   - Use numbered lists (`1. Step...`) for procedures.
+"""
+
+        human_prompt = f"""Document Context:
 {context}
 
 User Query: {user_question}
 """
 
-        response = llm.invoke(prompt)
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_prompt),
+        ]
+
+        response = llm.invoke(messages)
         clean_answer = response.content.strip()
+
+        # Mathematical Entity Grounding Guardrail:
+        # Detect if the query asked for specific capitalized entities (e.g. 'AI Research Scientist', 'VP of Sales')
+        # that are completely absent from the indexed context, but a small model fabricated metrics/figures.
+        cap_entities = re.findall(r'\b[A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z]*)+\b', user_question)
+        common_starters = {
+            'what are', 'what is', 'how many', 'how much', 'when does',
+            'where is', 'which of', 'who is', 'give me', 'tell me', 'can you'
+        }
+        specific_entities = [
+            e for e in cap_entities
+            if e.lower() not in common_starters and len(e.split()) >= 2
+        ]
+
+        if specific_entities:
+            context_lower = context.lower()
+            unmatched = [
+                e for e in specific_entities
+                if e.lower() not in context_lower
+            ]
+            if len(unmatched) == len(specific_entities):
+                has_metrics = bool(re.search(r'[\$\€\£]|\bUSD\b|\bEUR\b', clean_answer))
+                if has_metrics:
+                    clean_answer = "The requested information is not mentioned in the uploaded document."
 
         # Attach Verified Source Citations ONLY when information is actually found in the context
         not_found_phrases = [
-            "not mentioned", "not found", "does not mention",
-            "is not present", "cannot be found", "no mention"
+            "not mentioned", "not found", "does not mention", "does not contain",
+            "is not present", "cannot be found", "no mention", "not listed",
+            "no information", "does not provide", "not provided", "not available"
         ]
         is_not_found = any(p in clean_answer.lower() for p in not_found_phrases)
 

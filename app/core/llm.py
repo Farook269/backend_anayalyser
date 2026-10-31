@@ -1,3 +1,14 @@
+import sys
+try:
+    import langchain_core.pydantic_v1
+except (ImportError, AttributeError):
+    try:
+        import pydantic.v1 as pydantic_v1
+        import langchain_core
+        sys.modules['langchain_core.pydantic_v1'] = pydantic_v1
+    except Exception:
+        pass
+
 from app.config import USE_LOCAL_LLM, LOCAL_MODEL_NAME, OLLAMA_BASE_URL, GROQ_API_KEY
 
 TEXT_MODEL = "qwen/qwen3.8-27b"
