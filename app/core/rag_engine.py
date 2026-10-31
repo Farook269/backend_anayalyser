@@ -50,9 +50,9 @@ def generate_answer(user_question, retriever=None, include_sources=True):
             results_with_scores = retriever.vectorstore.similarity_search_with_score(retrieval_query, k=8)
             best_score = results_with_scores[0][1] if results_with_scores else 999.0
             
-            # 1.25 cutoff filters out completely off-topic inquiries
-            if not is_overview_request and best_score > 1.25:
-                return f"The requested information is not mentioned in the uploaded document."
+            # 1.08 cutoff filters out completely off-topic inquiries
+            if not is_overview_request and best_score > 1.08:
+                return "The requested information is not mentioned in the uploaded document."
 
             relevant_docs = [doc for doc, score in results_with_scores]
         else:
@@ -105,6 +105,10 @@ CORE GROUNDING RULES:
    - ALWAYS format all key numbers, metrics, salary amounts/ranges, quantities, deadlines, and dates in **bold** (e.g., **11 paid company holidays**, **22 days**, **$92,000–$124,000 USD**, **8 calendar days**).
    - Use clean bullet points with bold headers (`- **Role/Item:** details`) for multiple items or roles.
    - Use numbered lists with bold steps (`1. **Step:** ...`) for procedures.
+
+6. Direct Professional Answers (No Meta-Talk):
+   - Provide direct, concise answers without repeating system reasoning.
+   - NEVER output preamble like 'The user query "..." is not mentioned in the provided document context. Therefore, the answer is:'. Output ONLY the final professional answer.
 """
 
         human_prompt = f"""Document Context:
@@ -120,6 +124,13 @@ User Query: {user_question}
 
         response = llm.invoke(messages)
         clean_answer = response.content.strip()
+
+        # Clean any robotic preamble like 'The user query ... Therefore the answer is:'
+        if "user query" in clean_answer.lower() and any(
+            p in clean_answer.lower()
+            for p in ["not mentioned", "not related", "does not align", "not found", "therefore"]
+        ):
+            clean_answer = "The requested information is not mentioned in the uploaded document."
 
         # Mathematical Entity Grounding Guardrail:
         # Detect if the query asked for specific capitalized entities (e.g. 'AI Research Scientist', 'VP of Sales')
